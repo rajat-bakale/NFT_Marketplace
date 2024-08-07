@@ -53,8 +53,23 @@ This project includes two main contracts:
 
 3. **Deploy the Contract**: Update the deployment scripts and deploy to your preferred Polygon testnet or mainnet.
    ```bash
-   npx hardhat run scripts/deploy.js --network <network_name>
+   npx hardhat run scripts/deployNFT.js --network mumbai
+   npx hardhat run scripts/deployMarketplace.js --network mumbai
    ```
+
+## Scripts
+- **deployNFT.js**: Deploys the NFT.sol contract.
+- **deployMarketplace.js**: Deploys the Marketplace.sol contract.
+
+## Testing
+Unit tests are written using Hardhat and Chai. The test cases cover all functionalities of both contracts.
+  ### Running Tests
+   ```bash
+   npx hardhat test
+   ```
+  ### Test Files
+  - **test/NFT.test.js**: Contains tests for the NFT.sol contract.
+  - **test/Marketplace.test.js**: Contains tests for the Marketplace.sol contract.
 
 ## License
 
