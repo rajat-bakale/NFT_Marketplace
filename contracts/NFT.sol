@@ -5,7 +5,7 @@ import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
 
-contract NFT is ERC721URIStorage, Ownable(0x930E583a2222682a40D2b4f9BB5ffC0f7AF3963a) {
+contract NFT is ERC721URIStorage, Ownable(msg.sender) {
     uint256 private _currentTokenId;
 
     constructor() ERC721("MyNFT", "MNFT") {
@@ -24,4 +24,3 @@ contract NFT is ERC721URIStorage, Ownable(0x930E583a2222682a40D2b4f9BB5ffC0f7AF3
         return _currentTokenId;
     }
 }
-
