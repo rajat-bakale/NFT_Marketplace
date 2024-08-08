@@ -4,7 +4,7 @@ pragma solidity ^0.8.18;
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
-contract AlternativeNFTMarketplace is Ownable {
+contract NFTMarketplace is Ownable {
     struct Listing {
         uint256 tokenId;
         uint256 price;
