@@ -2,63 +2,80 @@ const { expect } = require("chai");
 const { ethers } = require("hardhat");
 
 describe("Marketplace Contract", function () {
-  let NFT, nft, Marketplace, marketplace, owner, addr1, addr2;
+  let nft;
+  let marketplace;
+  let owner;
+  let seller;
+  let buyer;
 
   beforeEach(async function () {
-    NFT = await ethers.getContractFactory("NFT");
-    [owner, addr1, addr2] = await ethers.getSigners();
+    [owner, seller, buyer] = await ethers.getSigners();
+
+    const NFT = await ethers.getContractFactory("NFT");
     nft = await NFT.deploy();
-    await nft.waitForDeployment();
+    await nft.deployed();
 
-
-    Marketplace = await ethers.getContractFactory("Marketplace");
+    const Marketplace = await ethers.getContractFactory("Marketplace");
     marketplace = await Marketplace.deploy();
-    await marketplace.waitForDeployment();
+    await marketplace.deployed();
 
-    
-    await nft.mintNFT(addr1.address, "https://example.com/token/1");
-    await nft.connect(addr1).approve(marketplace.target, 1);
+    await nft.mintNFT(seller.address, "tokenURI_1");
+    await nft.connect(seller).approve(marketplace.address, 1);
   });
 
-  it("Should list an NFT for sale", async function () {
-    await marketplace.connect(addr1).createMarketItem(nft.target, 1, ethers.parseEther("1"));
+  it("Should list an NFT", async function () {
+    await marketplace.connect(seller).listNFT(nft.address, 1, ethers.utils.parseEther("1"));
 
-    const items = await marketplace.fetchMarketItems();
-    expect(items.length).to.equal(1);
-    expect(items[0].price.toString()).to.equal(ethers.parseEther("1").toString());
-    expect(items[0].owner).to.equal(ethers.ZeroAddress);
-    expect(items[0].seller).to.equal(addr1.address);
+    const listing = await marketplace.listings(nft.address, 1);
+    expect(listing.price).to.equal(ethers.utils.parseEther("1"));
+    expect(listing.seller).to.equal(seller.address);
+    expect(listing.isListed).to.equal(true);
   });
 
-  it("Should allow a user to buy an NFT", async function () {
-    await marketplace.connect(addr1).createMarketItem(nft.target, 1, ethers.parseEther("1"));
+  it("Should allow buying an NFT", async function () {
+    await marketplace.connect(seller).listNFT(nft.address, 1, ethers.utils.parseEther("1"));
 
-    await marketplace.connect(addr2).createMarketSale(1, { value: ethers.parseEther("1") });
+    await marketplace.connect(buyer).buyNFT(nft.address, 1, { value: ethers.utils.parseEther("1") });
 
-    const newOwner = await nft.ownerOf(1);
-    expect(newOwner).to.equal(addr2.address);
+    expect(await nft.ownerOf(1)).to.equal(buyer.address);
 
-    const items = await marketplace.fetchMarketItems();
-    expect(items.length).to.equal(0);
+    const listing = await marketplace.listings(nft.address, 1);
+    expect(listing.isListed).to.equal(false);
   });
 
-  it("Should fail if the price is not correct", async function () {
-    await marketplace.connect(addr1).createMarketItem(nft.target, 1, ethers.parseEther("1"));
+  it("Should make an offer for an NFT", async function () {
+    await marketplace.connect(buyer).makeOffer(nft.address, 1, { value: ethers.utils.parseEther("0.5") });
 
-    await expect(
-      marketplace.connect(addr2).createMarketSale(1, { value: ethers.parseEther("0.5") })
-    ).to.be.revertedWith("Please submit the asking price");
+    const offers = await marketplace.offers(nft.address, 1, 0);
+    expect(offers.price).to.equal(ethers.utils.parseEther("0.5"));
+    expect(offers.buyer).to.equal(buyer.address);
   });
 
-  it("Should allow the seller to cancel the listing", async function () {
-    await marketplace.connect(addr1).createMarketItem(nft.target, 1, ethers.parseEther("1"));
+  it("Should accept an offer", async function () {
+    await marketplace.connect(seller).listNFT(nft.address, 1, ethers.utils.parseEther("1"));
+    await marketplace.connect(buyer).makeOffer(nft.address, 1, { value: ethers.utils.parseEther("0.5") });
 
-    await marketplace.connect(addr1).cancelListing(1);
+    await marketplace.connect(seller).acceptOffer(nft.address, 1, 0);
 
-    const newOwner = await nft.ownerOf(1);
-    expect(newOwner).to.equal(addr1.address);
+    expect(await nft.ownerOf(1)).to.equal(buyer.address);
 
-    const items = await marketplace.fetchMarketItems();
-    expect(items.length).to.equal(0);
+    const listing = await marketplace.listings(nft.address, 1);
+    expect(listing.isListed).to.equal(false);
+  });
+
+  it("Should cancel a listing", async function () {
+    await marketplace.connect(seller).listNFT(nft.address, 1, ethers.utils.parseEther("1"));
+    await marketplace.connect(seller).cancelListing(nft.address, 1);
+
+    const listing = await marketplace.listings(nft.address, 1);
+    expect(listing.isListed).to.equal(false);
+  });
+
+  it("Should deposit and withdraw funds", async function () {
+    await marketplace.connect(buyer).depositFunds({ value: ethers.utils.parseEther("1") });
+    expect(await marketplace.userBalances(buyer.address)).to.equal(ethers.utils.parseEther("1"));
+
+    await marketplace.connect(buyer).withdrawFunds();
+    expect(await marketplace.userBalances(buyer.address)).to.equal(0);
   });
 });
