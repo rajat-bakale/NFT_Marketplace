@@ -4,113 +4,111 @@ pragma solidity ^0.8.18;
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
-contract Marketplace is Ownable(0x930E583a2222682a40D2b4f9BB5ffC0f7AF3963a) {
-    uint256 private _currentItemId;
-    uint256 private _itemsSold;
-
-    struct MarketItem {
-        uint256 itemId;
-        IERC721 nftContract;
+contract AlternativeNFTMarketplace is Ownable {
+    struct Listing {
         uint256 tokenId;
-        address payable seller;
-        address payable owner;
         uint256 price;
-        bool sold;
+        address seller;
+        bool isListed;
     }
 
-    mapping(uint256 => MarketItem) private idToMarketItem;
-
-    event MarketItemCreated (
-        uint256 indexed itemId,
-        address indexed nftContract,
-        uint256 indexed tokenId,
-        address seller,
-        address owner,
-        uint256 price,
-        bool sold
-    );
-
-    event MarketItemSold (
-        uint256 indexed itemId,
-        address indexed nftContract,
-        uint256 indexed tokenId,
-        address seller,
-        address owner,
-        uint256 price
-    );
-
-    constructor() {
-        _currentItemId = 0;
-        _itemsSold = 0;
+    struct Offer {
+        uint256 price;
+        address buyer;
     }
 
-    function createMarketItem(IERC721 nftContract, uint256 tokenId, uint256 price) public {
-        require(price > 0, "Price must be at least 1 wei");
+    mapping(address => mapping(uint256 => Listing)) public listings;
+   
+    mapping(address => mapping(uint256 => Offer[])) public offers;
+   
+    mapping(address => uint256) public userBalances;
 
-        _currentItemId += 1;
-        uint256 itemId = _currentItemId;
+    event NFTListed(address indexed nftContract, uint256 indexed tokenId, uint256 price, address indexed seller);
+    event NFTBought(address indexed nftContract, uint256 indexed tokenId, uint256 price, address indexed buyer);
+    event OfferMade(address indexed nftContract, uint256 indexed tokenId, uint256 price, address indexed buyer);
+    event OfferAccepted(address indexed nftContract, uint256 indexed tokenId, uint256 price, address indexed seller);
+    event ListingCancelled(address indexed nftContract, uint256 indexed tokenId);
+    event FundsDeposited(address indexed user, uint256 amount);
+    event FundsWithdrawn(address indexed user, uint256 amount);
 
-        idToMarketItem[itemId] = MarketItem(
-            itemId,
-            nftContract,
-            tokenId,
-            payable(msg.sender),
-            payable(address(0)),
-            price,
-            false
-        );
+    constructor() Ownable(msg.sender) {}
 
-        nftContract.transferFrom(msg.sender, address(this), tokenId);
+    function listNFT(address _nftContract, uint256 _tokenId, uint256 _price) external {
+        IERC721 nft = IERC721(_nftContract);
+        require(nft.ownerOf(_tokenId) == msg.sender, "Not the owner");
+        require(nft.getApproved(_tokenId) == address(this), "Marketplace not approved");
 
-        emit MarketItemCreated(
-            itemId,
-            address(nftContract),
-            tokenId,
-            msg.sender,
-            address(0),
-            price,
-            false
-        );
+        listings[_nftContract][_tokenId] = Listing(_tokenId, _price, msg.sender, true);
+
+        emit NFTListed(_nftContract, _tokenId, _price, msg.sender);
     }
 
-    function createMarketSale(uint256 itemId) public payable {
-        uint256 price = idToMarketItem[itemId].price;
-        uint256 tokenId = idToMarketItem[itemId].tokenId;
-        IERC721 nftContract = idToMarketItem[itemId].nftContract;
+    function buyNFT(address _nftContract, uint256 _tokenId) external payable {
+        Listing storage listing = listings[_nftContract][_tokenId];
+        require(listing.isListed, "NFT not listed");
+        require(msg.value == listing.price, "Incorrect value");
 
-        require(msg.value == price, "Please submit the asking price");
+        IERC721(_nftContract).transferFrom(listing.seller, msg.sender, _tokenId);
+        payable(listing.seller).transfer(msg.value);
 
-        idToMarketItem[itemId].seller.transfer(msg.value);
-        nftContract.transferFrom(address(this), msg.sender, tokenId);
+        listing.isListed = false;
 
-        idToMarketItem[itemId].owner = payable(msg.sender);
-        idToMarketItem[itemId].sold = true;
-        _itemsSold += 1;
-
-        emit MarketItemSold(
-            itemId,
-            address(nftContract),
-            tokenId,
-            idToMarketItem[itemId].seller,
-            msg.sender,
-            price
-        );
+        emit NFTBought(_nftContract, _tokenId, listing.price, msg.sender);
     }
 
-    function fetchMarketItems() public view returns (MarketItem[] memory) {
-        uint itemCount = _currentItemId;
-        uint unsoldItemCount = itemCount - _itemsSold;
-        uint currentIndex = 0;
+    function makeOffer(address _nftContract, uint256 _tokenId) external payable {
+        require(msg.value > 0, "Offer price must be greater than zero");
 
-        MarketItem[] memory items = new MarketItem[](unsoldItemCount);
-        for (uint i = 0; i < itemCount; i++) {
-            if (idToMarketItem[i + 1].owner == address(0)) {
-                uint currentId = i + 1;
-                MarketItem storage currentItem = idToMarketItem[currentId];
-                items[currentIndex] = currentItem;
-                currentIndex += 1;
-            }
-        }
-        return items;
+        offers[_nftContract][_tokenId].push(Offer(msg.value, msg.sender));
+
+        emit OfferMade(_nftContract, _tokenId, msg.value, msg.sender);
+    }
+
+    function acceptOffer(address _nftContract, uint256 _tokenId, uint256 _offerIndex) external {
+        Offer memory offer = offers[_nftContract][_tokenId][_offerIndex];
+        Listing storage listing = listings[_nftContract][_tokenId];
+        require(offer.price > 0, "Invalid offer");
+        require(listing.isListed, "NFT not listed");
+        require(listing.seller == msg.sender, "Not the seller");
+
+        IERC721(_nftContract).transferFrom(msg.sender, offer.buyer, _tokenId);
+        payable(msg.sender).transfer(offer.price);
+
+        listing.isListed = false;
+        delete offers[_nftContract][_tokenId][_offerIndex];
+
+        emit OfferAccepted(_nftContract, _tokenId, offer.price, msg.sender);
+    }
+
+    function cancelListing(address _nftContract, uint256 _tokenId) external {
+        Listing storage listing = listings[_nftContract][_tokenId];
+        require(listing.seller == msg.sender, "Not the seller");
+        require(listing.isListed, "NFT not listed");
+
+        listing.isListed = false;
+
+        emit ListingCancelled(_nftContract, _tokenId);
+    }
+
+    function depositFunds() external payable {
+        require(msg.value > 0, "No funds sent");
+
+        userBalances[msg.sender] += msg.value;
+
+        emit FundsDeposited(msg.sender, msg.value);
+    }
+
+    function withdrawFunds() external {
+        uint256 balance = userBalances[msg.sender];
+        require(balance > 0, "No funds to withdraw");
+
+        userBalances[msg.sender] = 0;
+        payable(msg.sender).transfer(balance);
+
+        emit FundsWithdrawn(msg.sender, balance);
+    }
+
+    receive() external payable {
+        userBalances[msg.sender] += msg.value;
     }
 }
